@@ -13,3 +13,5 @@ func init() {
 func main() {
 	initializers.DB.AutoMigrate(&models.ModuleInfo{})
 }
+
+//goose -dir=./migrations/ postgres "user=postgres password=91926499 dbname=courseapi sslmode=disable" up -force
