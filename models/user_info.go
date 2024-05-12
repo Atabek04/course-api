@@ -1,9 +1,11 @@
 package models
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 	"time"
 )
 
@@ -52,4 +54,21 @@ type UserModel struct {
 
 func (User) TableName() string {
 	return "users"
+}
+
+func (m UserModel) GetForToken(db *gorm.DB, tokenScope, tokenPlaintext string) (*User, error) {
+	tokenHash := sha256.Sum256([]byte(tokenPlaintext))
+
+	var user User
+
+	result := db.Select("users.id, users.created_at, users.name, users.email, users.password_hash, users.activated, users.version").
+		Joins("INNER JOIN tokens ON users.id = tokens.user_id").
+		Where("tokens.hash = ? AND tokens.scope = ? AND tokens.expiry > ?", tokenHash[:], tokenScope, time.Now()).
+		First(&user)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	return &user, nil
 }

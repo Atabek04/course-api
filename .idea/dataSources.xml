@@ -8,5 +8,12 @@
       <jdbc-url>jdbc:postgresql://localhost:5432/courseapi</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="courseapi_test@localhost" uuid="e463cedd-5fc5-4f94-8f77-a9a95425bbbd">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://localhost:5432/courseapi_test</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>

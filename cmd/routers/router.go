@@ -1,9 +1,9 @@
 package routers
 
 import (
-	"course-api/mailer"
 	"course-api/models"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -12,6 +12,10 @@ import (
 )
 
 func NewRouter(db *gorm.DB) *mux.Router {
+	//authenticatedRouter := router.PathPrefix("/").Subrouter()
+	//authenticatedRouter.Use(authMiddleware)
+	//authenticatedRouter.HandleFunc("/modules", createModuleInfo(db)).Methods("POST")
+
 	router := mux.NewRouter()
 	router.HandleFunc("/modules", createModuleInfo(db)).Methods("POST")
 	router.HandleFunc("/modules/{id}", getModuleInfo(db)).Methods("GET")
@@ -21,6 +25,8 @@ func NewRouter(db *gorm.DB) *mux.Router {
 	router.HandleFunc("/departments", createDepartmentInfo(db)).Methods("POST")
 	router.HandleFunc("/departments/{id}", getDepartmentInfo(db)).Methods("GET")
 
+	router.HandleFunc("/users/activated", activateUserHandler(db)).Methods("PUT")
+
 	router.HandleFunc("/users", registerUserHandler(db)).Methods("POST")
 	router.HandleFunc("/users", getAllUserInfoHandler(db)).Methods("GET") // Correct mapping here
 	router.HandleFunc("/users/{id}", getUserInfoHandler(db)).Methods("GET")
@@ -28,6 +34,29 @@ func NewRouter(db *gorm.DB) *mux.Router {
 	router.HandleFunc("/users/{id}", deleteUserInfoHandler(db)).Methods("DELETE")
 
 	return router
+}
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isAuthenticated(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if !hasPermissions(r) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isAuthenticated(r *http.Request) bool {
+	return true
+}
+
+func hasPermissions(r *http.Request) bool {
+	return true
 }
 
 func registerUserHandler(db *gorm.DB) http.HandlerFunc {
@@ -62,17 +91,86 @@ func registerUserHandler(db *gorm.DB) http.HandlerFunc {
 			return
 		}
 
-		go func() {
-			mailService := mailer.New("sandbox.smtp.mailtrap.io", 587, "3155d87cf6e478", "11ce409c255576", "otabek.shadimatov@gmail.com")
-			err = mailService.Send(user.Email, "user_welcome.tmpl", user)
-			if err != nil {
-				http.Error(w, "Failed to send email", http.StatusInternalServerError)
-				return
-			}
-		}()
+		//token, err := models.TokenModel{}.New(db, user.ID, 3*24*time.Hour, models.ScopeActivation)
+		//if err != nil {
+		//	http.Error(w, "Failed to create a token", http.StatusInternalServerError)
+		//	return
+		//}
+		//go func() {
+		//	// As there are now multiple pieces of data that we want to pass to our email
+		//	// templates, we create a map to act as a 'holding structure' for the data. This // contains the plaintext version of the activation token for the user, along
+		//	// with their ID.
+		//	data := map[string]any{
+		//		"activationToken": token.Plaintext,
+		//		"userID":          user.ID}
+		//	// Send the welcome email, passing in the map above as dynamic data.
+		//	mailService := mailer.New("sandbox.smtp.mailtrap.io", 587, "3155d87cf6e478", "11ce409c255576", "otabek.shadimatov@gmail.com")
+		//	err = mailService.Send(user.Email, "user_welcome.tmpl", data)
+		//	if err != nil {
+		//		http.Error(w, "Failed to send email", http.StatusInternalServerError)
+		//		return
+		//	}
+		//}()
+
+		//go func() {
+		//	mailService := mailer.New("sandbox.smtp.mailtrap.io", 587, "3155d87cf6e478", "11ce409c255576", "otabek.shadimatov@gmail.com")
+		//	err = mailService.Send(user.Email, "user_welcome.tmpl", user)
+		//	if err != nil {
+		//		http.Error(w, "Failed to send email", http.StatusInternalServerError)
+		//		return
+		//	}
+		//}()
 
 		w.WriteHeader(http.StatusCreated)
 		err = json.NewEncoder(w).Encode(user)
+	}
+}
+
+func activateUserHandler(db *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			TokenPlaintext string `json:"token"`
+		}
+
+		err := json.NewDecoder(r.Body).Decode(&input)
+		if err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		user, err := models.UserModel{}.GetForToken(db, models.ScopeActivation, input.TokenPlaintext)
+		if err != nil {
+			if errors.Is(err, errors.New("user not found")) {
+				http.Error(w, "Invalid activation token", http.StatusUnauthorized)
+				return
+			}
+			http.Error(w, "Failed to retrieve user", http.StatusInternalServerError)
+			return
+		}
+
+		user.Activated = true
+
+		// Update user's activation status directly using GORM
+		result := db.Model(&models.User{}).Where("id = ?", user.ID).Update("activated", true)
+		if result.Error != nil {
+			http.Error(w, "Failed to update user", http.StatusInternalServerError)
+			return
+		}
+
+		// Delete all activation tokens for the user
+		err = models.TokenModel{}.DeleteAllForUser(db, models.ScopeActivation, user.ID)
+		if err != nil {
+			http.Error(w, "Failed to delete activation tokens", http.StatusInternalServerError)
+			return
+		}
+
+		err = json.NewEncoder(w).Encode(struct {
+			User *models.User `json:"user"`
+		}{User: user})
+		if err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
